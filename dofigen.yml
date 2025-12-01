@@ -1,0 +1,11 @@
+extend: https://raw.githubusercontent.com/lenra-io/dofigen-hub/main/rust/cli-from-scratch.image.yml
+
+builders:
+  muslrust:
+    arg:
+      APP_NAME: shiibot_rs
+      TARGETPLATFORM: linux/amd64
+      BUILD_ARGS: --verbose
+arg:
+  APP_NAME: shiibot_rs
+

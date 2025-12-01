@@ -1,0 +1,44 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: shiibot
+      POSTGRES_PASSWORD: shiibot_password
+      POSTGRES_DB: shiibot
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U shiibot"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  shiibot:
+    image: ghcr.io/shiipou/shiibot_rs:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    develop:
+      watch:
+        - path: Cargo.toml
+          action: rebuild
+        - path: Dockerfile
+          action: rebuild
+        - path: src/
+          action: rebuild
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file: 
+      - .env
+    environment:
+      DATABASE_URL: postgres://shiibot:shiibot_password@postgres:5432/shiibot
+      # Add other environment variables your bot needs here
+      # DISCORD_TOKEN: ${DISCORD_TOKEN}
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

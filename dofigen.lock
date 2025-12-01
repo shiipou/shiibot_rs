@@ -1,0 +1,85 @@
+effective: |
+  context:
+  - /src
+  - /Cargo.*
+  builders:
+    muslrust:
+      fromImage:
+        path: clux/muslrust
+        digest: sha256:f96654a4c624ce96da9adb3587164ef4bf945c6492873db22feec3428a0eaf25
+      label:
+        org.opencontainers.image.base.name: docker.io/clux/muslrust:stable
+        org.opencontainers.image.base.digest: sha256:f96654a4c624ce96da9adb3587164ef4bf945c6492873db22feec3428a0eaf25
+      workdir: /app
+      arg:
+        CARGO_TARGET: x86_64-unknown-linux-musl
+        BUILD_ARGS: --verbose
+        APP_NAME: shiibot_rs
+        TARGETPLATFORM: linux/amd64
+      run:
+      - |
+        if [ "${TARGETPLATFORM}" = "linux/amd64" ]; then
+          export CARGO_TARGET="x86_64-unknown-linux-musl"
+        elif [ "${TARGETPLATFORM}" = "linux/arm64" ]; then
+          export CARGO_TARGET="aarch64-unknown-linux-musl"
+        fi
+      - cargo build --release ${BUILD_ARGS}
+      - mv target/${CARGO_TARGET}/release/${APP_NAME} /tmp/
+      cache:
+      - target: /home/rust/.cargo
+      - target: /app/target
+      bind:
+      - target: Cargo.toml
+        source: Cargo.toml
+      - target: Cargo.lock
+        source: Cargo.lock
+      - target: src/
+        source: src/
+  label:
+    io.dofigen.version: 2.5.1
+  arg:
+    APP_NAME: shiibot_rs
+  env:
+    PATH: /bin
+  copy:
+  - fromBuilder: muslrust
+    paths:
+    - /tmp/${APP_NAME}
+    target: /bin/
+  entrypoint:
+  - /bin/${APP_NAME}
+images:
+  docker.io:
+    clux:
+      muslrust:
+        stable:
+          digest: sha256:f96654a4c624ce96da9adb3587164ef4bf945c6492873db22feec3428a0eaf25
+resources:
+  https://raw.githubusercontent.com/lenra-io/dofigen-hub/main/rust/muslrust.builder.yml:
+    hash: 30c2041f7aab42ab2572e634ffb435e58f41ad69b4c78e045472484bebcb3fd5
+    content: "context:\n  - /src\n  - /Cargo.*\nbuilders:\n  muslrust:\n    fromImage: clux/muslrust:stable\n    arg:\n      TARGETPLATFORM: \n      CARGO_TARGET: x86_64-unknown-linux-musl\n    workdir: /app\n    bind:\n      - Cargo.toml\n      - Cargo.lock\n      - src/\n    run:\n      - |\n        if [ \"${TARGETPLATFORM}\" = \"linux/amd64\" ]; then\n          export CARGO_TARGET=\"x86_64-unknown-linux-musl\"\n        elif [ \"${TARGETPLATFORM}\" = \"linux/arm64\" ]; then\n          export CARGO_TARGET=\"aarch64-unknown-linux-musl\"\n        fi\n      # Build with musl to work with scratch\n      - cargo build --release ${BUILD_ARGS}\n      # move the generated binary outside of the target directory. If not the other stages won't be able to find it since it's in a cache volume\n      - mv target/${CARGO_TARGET}/release/${APP_NAME} /tmp/\n    cache:\n      # Cargo cache\n      - /home/rust/.cargo\n      # build cache\n      - /app/target\n"
+  https://raw.githubusercontent.com/lenra-io/dofigen-hub/main/rust/cli-from-scratch.image.yml:
+    hash: 980ba46645ef128bc8cfe221b26374ec766ad34b80b83e85cb747b2ffd064af3
+    content: |
+      extend: ./muslrust.builder.yml
+      env:
+        PATH: /bin
+      copy:
+        - fromBuilder: muslrust
+          paths: /tmp/${APP_NAME}
+          target: /bin/
+      entrypoint: /bin/${APP_NAME}
+  dofigen.yml:
+    hash: b002e2eaf17c6e2179500e2a525a8c872872a9b56dba855543cf8224e27285f2
+    content: |+
+      extend: https://raw.githubusercontent.com/lenra-io/dofigen-hub/main/rust/cli-from-scratch.image.yml
+
+      builders:
+        muslrust:
+          arg:
+            APP_NAME: shiibot_rs
+            TARGETPLATFORM: linux/amd64
+            BUILD_ARGS: --verbose
+      arg:
+        APP_NAME: shiibot_rs
+
