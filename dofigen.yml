@@ -8,4 +8,4 @@ builders:
       BUILD_ARGS: --verbose
 arg:
   APP_NAME: shiibot_rs
-
+entrypoint: /bin/shiibot_rs

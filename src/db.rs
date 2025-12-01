@@ -3,6 +3,9 @@ use sqlx::{PgPool, postgres::PgPoolOptions};
 use tracing::info;
 
 /// Database connection pool wrapper
+///
+/// Handles all database operations for the bot including lobby channels,
+/// temporary channels, and archive categories.
 #[derive(Clone)]
 pub struct Database {
     pool: PgPool,
