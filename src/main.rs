@@ -1,20 +1,20 @@
 mod commands;
-mod commands_timezone;
 mod constants;
-mod db;
+mod database;
 mod handlers;
 mod models;
 mod schedule;
+mod services;
+mod utils;
 
 use poise::serenity_prelude as serenity;
 use std::sync::Arc;
 use tracing::{error, info};
 
 use crate::{
-    commands::{convert_to_lobby, create_lobby, disable_birthday, setup_birthday},
-    commands_timezone::setup_timezone,
+    commands::{convert_to_lobby, create_lobby, disable_birthday, setup_birthday, setup_timezone},
     constants::LOG_DIRECTIVE,
-    db::Database,
+    database::Database,
     handlers::{handle_interaction, handle_modal_submit, handle_voice_state_update},
     models::Data,
     schedule::start_schedule_manager,

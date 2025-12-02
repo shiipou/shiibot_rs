@@ -2,7 +2,7 @@ use dashmap::DashMap;
 use poise::serenity_prelude::{ChannelId, GuildId, UserId};
 use tokio::sync::watch;
 
-use crate::db::Database;
+use crate::database::Database;
 
 /// Represents a temporary voice channel owned by a user
 #[derive(Clone, Debug)]
@@ -45,33 +45,35 @@ impl Data {
     /// Load existing data from the database into memory
     pub async fn load_from_database(&self) -> Result<(), Error> {
         // Load lobby channels
-        match self.db.get_all_lobby_channels().await {
-            Ok(lobbies) => {
-                for (channel_id, guild_id) in lobbies {
+        self.db
+            .get_all_lobby_channels()
+            .await
+            .map(|lobbies| {
+                lobbies.into_iter().for_each(|(channel_id, guild_id)| {
                     self.lobby_channels.insert(channel_id, guild_id);
-                }
+                });
                 tracing::info!(
                     "Loaded {} lobby channels from database",
                     self.lobby_channels.len()
                 );
-            }
-            Err(e) => {
+            })
+            .unwrap_or_else(|e| {
                 tracing::warn!("Failed to load lobby channels from database: {}", e);
-            }
-        }
+            });
 
         // Load temp channels
-        match self.db.get_all_temp_channels().await {
-            Ok(temps) => {
-                for (
+        self.db
+            .get_all_temp_channels()
+            .await
+            .map(|temps| {
+                temps.into_iter().for_each(|(
                     channel_id,
                     guild_id,
                     owner_id,
                     lobby_channel_id,
                     is_persistent,
                     is_archived,
-                ) in temps
-                {
+                )| {
                     self.temp_channels.insert(
                         channel_id,
                         TempChannel {
@@ -82,16 +84,15 @@ impl Data {
                             guild_id,
                         },
                     );
-                }
+                });
                 tracing::info!(
                     "Loaded {} temp channels from database",
                     self.temp_channels.len()
                 );
-            }
-            Err(e) => {
+            })
+            .unwrap_or_else(|e| {
                 tracing::warn!("Failed to load temp channels from database: {}", e);
-            }
-        }
+            });
 
         Ok(())
     }
@@ -106,3 +107,15 @@ impl Data {
 
 pub type Error = Box<dyn std::error::Error + Send + Sync>;
 pub type Context<'a> = poise::Context<'a, Data, Error>;
+
+#[cfg(test)]
+mod tests {
+    // Note: is_channel_owner is a pure function but requires DashMap state
+    // It would benefit from property-based testing with proptest
+    // Tests would require:
+    // 1. Create Data instance with mock database
+    // 2. Insert temp channel with specific owner
+    // 3. Assert is_channel_owner returns true for owner
+    // 4. Assert is_channel_owner returns false for non-owner
+    // Skipping for now as it requires async database setup
+}
