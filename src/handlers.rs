@@ -516,6 +516,11 @@ pub async fn handle_interaction(
                 error!("Failed to handle toggle persistent button: {}", e);
             }
         }
+        "collect_birthday" => {
+            if let Err(e) = handle_collect_birthday_button(ctx, &interaction, data).await {
+                error!("Failed to handle collect birthday button: {}", e);
+            }
+        }
         _ => {}
     }
 }
@@ -721,6 +726,10 @@ pub async fn handle_modal_submit(
         && let Err(e) = handle_channel_config_modal(ctx, &interaction, data).await
     {
         error!("Failed to handle modal submission: {}", e);
+    } else if interaction.data.custom_id == "birthday_modal"
+        && let Err(e) = handle_birthday_modal(ctx, &interaction, data).await
+    {
+        error!("Failed to handle birthday modal: {}", e);
     }
 }
 
@@ -796,4 +805,242 @@ async fn handle_channel_config_modal(
     );
 
     Ok(())
+}
+
+/// Handle the collect birthday button click
+async fn handle_collect_birthday_button(
+    ctx: &serenity::Context,
+    interaction: &serenity::ComponentInteraction,
+    _data: &Data,
+) -> Result<(), Error> {
+    // Show modal for birthday input
+    let modal =
+        serenity::CreateModal::new("birthday_modal", "🎂 Set Your Birthday").components(vec![
+            serenity::CreateActionRow::InputText(
+                serenity::CreateInputText::new(
+                    serenity::InputTextStyle::Short,
+                    "Day (1-31)",
+                    "birth_day",
+                )
+                .placeholder("e.g., 15")
+                .required(true)
+                .min_length(1)
+                .max_length(2),
+            ),
+            serenity::CreateActionRow::InputText(
+                serenity::CreateInputText::new(
+                    serenity::InputTextStyle::Short,
+                    "Month (1-12)",
+                    "birth_month",
+                )
+                .placeholder("e.g., 3 for March")
+                .required(true)
+                .min_length(1)
+                .max_length(2),
+            ),
+            serenity::CreateActionRow::InputText(
+                serenity::CreateInputText::new(
+                    serenity::InputTextStyle::Short,
+                    "Year (optional)",
+                    "birth_year",
+                )
+                .placeholder("e.g., 1995 (optional)")
+                .required(false)
+                .min_length(4)
+                .max_length(4),
+            ),
+        ]);
+
+    let response = CreateInteractionResponse::Modal(modal);
+    interaction.create_response(ctx, response).await?;
+
+    Ok(())
+}
+
+/// Handle the birthday modal submission
+async fn handle_birthday_modal(
+    ctx: &serenity::Context,
+    interaction: &serenity::ModalInteraction,
+    data: &Data,
+) -> Result<(), Error> {
+    let user_id = interaction.user.id;
+
+    // Extract values from modal
+    let components = &interaction.data.components;
+
+    let day_str = components
+        .first()
+        .and_then(|row| row.components.first())
+        .and_then(|component| match component {
+            serenity::ActionRowComponent::InputText(input) => input.value.clone(),
+            _ => None,
+        })
+        .unwrap_or_default();
+
+    let month_str = components
+        .get(1)
+        .and_then(|row| row.components.first())
+        .and_then(|component| match component {
+            serenity::ActionRowComponent::InputText(input) => input.value.clone(),
+            _ => None,
+        })
+        .unwrap_or_default();
+
+    let year_str = components
+        .get(2)
+        .and_then(|row| row.components.first())
+        .and_then(|component| match component {
+            serenity::ActionRowComponent::InputText(input) => input.value.clone(),
+            _ => None,
+        })
+        .unwrap_or_default();
+
+    // Parse the values
+    let month: i32 = match month_str.trim().parse() {
+        Ok(m) if (1..=12).contains(&m) => m,
+        _ => {
+            let response = CreateInteractionResponse::Message(
+                CreateInteractionResponseMessage::new()
+                    .content("❌ Invalid month! Please enter a number between 1 and 12.")
+                    .ephemeral(true),
+            );
+            interaction.create_response(ctx, response).await?;
+            return Ok(());
+        }
+    };
+
+    let day: i32 = match day_str.trim().parse() {
+        Ok(d) if (1..=31).contains(&d) => d,
+        _ => {
+            let response = CreateInteractionResponse::Message(
+                CreateInteractionResponseMessage::new()
+                    .content("❌ Invalid day! Please enter a number between 1 and 31.")
+                    .ephemeral(true),
+            );
+            interaction.create_response(ctx, response).await?;
+            return Ok(());
+        }
+    };
+
+    let year: Option<i32> = if year_str.trim().is_empty() {
+        None
+    } else {
+        match year_str.trim().parse() {
+            Ok(y) if y > 1900 && y <= 2100 => Some(y),
+            _ => {
+                let response = CreateInteractionResponse::Message(
+                    CreateInteractionResponseMessage::new()
+                        .content("❌ Invalid year! Please enter a valid year (1901-2100) or leave it empty.")
+                        .ephemeral(true),
+                );
+                interaction.create_response(ctx, response).await?;
+                return Ok(());
+            }
+        }
+    };
+
+    // Validate the date
+    if !is_valid_date(month, day, year) {
+        let response = CreateInteractionResponse::Message(
+            CreateInteractionResponseMessage::new()
+                .content("❌ Invalid date! Please check your month and day combination.")
+                .ephemeral(true),
+        );
+        interaction.create_response(ctx, response).await?;
+        return Ok(());
+    }
+
+    // Defer the response
+    interaction
+        .create_response(
+            ctx,
+            CreateInteractionResponse::Defer(
+                CreateInteractionResponseMessage::new().ephemeral(true),
+            ),
+        )
+        .await?;
+
+    // Save to database
+    if let Err(e) = data.db.upsert_birthday(user_id, month, day, year).await {
+        error!("Failed to save birthday to database: {}", e);
+        interaction
+            .edit_response(
+                ctx,
+                EditInteractionResponse::new()
+                    .content("❌ Failed to save your birthday. Please try again later."),
+            )
+            .await?;
+        return Ok(());
+    }
+
+    // Format the birthday message
+    let month_name = get_month_name(month);
+    let date_display = if let Some(y) = year {
+        format!("{} {} {}", day, month_name, y)
+    } else {
+        format!("{} {}", day, month_name)
+    };
+
+    interaction
+        .edit_response(
+            ctx,
+            EditInteractionResponse::new().content(format!(
+                "✅ **Birthday saved!**\n\nYour birthday: {}\n\n\
+                This will be used across all servers where this bot is present.",
+                date_display
+            )),
+        )
+        .await?;
+
+    info!(
+        "User {} set birthday to {}/{}/{}",
+        user_id,
+        month,
+        day,
+        year.map_or("None".to_string(), |y| y.to_string())
+    );
+
+    Ok(())
+}
+
+/// Validate if a date is valid
+fn is_valid_date(month: i32, day: i32, year: Option<i32>) -> bool {
+    if !(1..=12).contains(&month) || !(1..=31).contains(&day) {
+        return false;
+    }
+
+    // Days in each month (non-leap year)
+    let days_in_month = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+
+    let max_day = if month == 2 && year.is_some_and(is_leap_year) {
+        29
+    } else {
+        days_in_month[(month - 1) as usize]
+    };
+
+    day <= max_day
+}
+
+/// Check if a year is a leap year
+fn is_leap_year(year: i32) -> bool {
+    (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)
+}
+
+/// Get month name from month number
+fn get_month_name(month: i32) -> &'static str {
+    match month {
+        1 => "January",
+        2 => "February",
+        3 => "March",
+        4 => "April",
+        5 => "May",
+        6 => "June",
+        7 => "July",
+        8 => "August",
+        9 => "September",
+        10 => "October",
+        11 => "November",
+        12 => "December",
+        _ => "Unknown",
+    }
 }

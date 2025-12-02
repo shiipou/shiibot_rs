@@ -1,5 +1,6 @@
 use dashmap::DashMap;
 use poise::serenity_prelude::{ChannelId, GuildId, UserId};
+use tokio::sync::watch;
 
 use crate::db::Database;
 
@@ -14,6 +15,7 @@ pub struct TempChannel {
 }
 
 /// Bot state shared across all handlers
+#[derive(Clone)]
 pub struct Data {
     /// Database connection
     pub db: Database,
@@ -23,16 +25,20 @@ pub struct Data {
     pub temp_channels: DashMap<ChannelId, TempChannel>,
     /// Maps guild IDs to their archive category IDs
     pub archive_categories: DashMap<GuildId, ChannelId>,
+    /// Signal to reload schedules
+    pub schedule_reload_tx: watch::Sender<u64>,
 }
 
 impl Data {
     /// Create a new Data instance with the given database connection
     pub fn new(db: Database) -> Self {
+        let (schedule_reload_tx, _) = watch::channel(0);
         Self {
             db,
             lobby_channels: DashMap::new(),
             temp_channels: DashMap::new(),
             archive_categories: DashMap::new(),
+            schedule_reload_tx,
         }
     }
 

@@ -21,13 +21,20 @@ A Rust Discord bot to manage temporary voice channels using Serenity and Poise.
 
 4. Invite the bot to your server with the following permissions:
    - Manage Channels
-   - Move Members
-   - Send Messages
-   - Use Slash Commands
    - View Channels
+   - Send Messages
+   - Manage Messages
+   - Read Message History
+   - Use Slash Commands
+   - Connect
+   - Speak
+   - Mute Members
+   - Deafen Members
+   - Move Members
+   - Set Voice Channel Status
 
 5. That will give you a link like that :  
-   `https://discord.com/api/oauth2/authorize?client_id=505756999351533579&permissions=277042170896&scope=bot%20applications.commands`  
+   `https://discord.com/api/oauth2/authorize?client_id=505756999351533579&permissions=281477156776976&scope=bot%20applications.commands`  
    Invite your bot in your server
 
 6. Set up a PostgreSQL database and get the connection URL
@@ -46,6 +53,11 @@ Or create a `.env` file in the project root:
 
 ```env
 DISCORD_TOKEN=your_bot_token_here
+DATABASE_URL=postgres://user:password@localhost/shiibot
+
+# Optional - Development mode: register commands to a specific guild for instant updates
+# When not set, commands are registered globally (takes up to 1 hour)
+# DEV_GUILD_ID=1234567890123456789
 ```
 
 Then run using docker compose (recommanded):

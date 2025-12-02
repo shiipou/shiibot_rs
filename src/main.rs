@@ -1,18 +1,23 @@
 mod commands;
+mod commands_timezone;
 mod constants;
 mod db;
 mod handlers;
 mod models;
+mod schedule;
 
 use poise::serenity_prelude as serenity;
+use std::sync::Arc;
 use tracing::{error, info};
 
 use crate::{
-    commands::{convert_to_lobby, create_lobby},
+    commands::{convert_to_lobby, create_lobby, disable_birthday, setup_birthday},
+    commands_timezone::setup_timezone,
     constants::LOG_DIRECTIVE,
     db::Database,
     handlers::{handle_interaction, handle_modal_submit, handle_voice_state_update},
     models::Data,
+    schedule::start_schedule_manager,
 };
 
 #[tokio::main]
@@ -50,7 +55,7 @@ async fn main() {
     }
 
     // Create and start the bot
-    if let Err(e) = start_bot(config.discord_token, data).await {
+    if let Err(e) = start_bot(config.discord_token, data, config.dev_guild_id).await {
         error!("Bot error: {}", e);
         std::process::exit(1);
     }
@@ -60,6 +65,7 @@ async fn main() {
 struct Config {
     discord_token: String,
     database_url: String,
+    dev_guild_id: Option<u64>,
 }
 
 /// Initialize the logging system
@@ -80,9 +86,19 @@ fn load_configuration() -> Result<Config, Box<dyn std::error::Error>> {
     let database_url = std::env::var("DATABASE_URL")
         .map_err(|_| "DATABASE_URL environment variable not set. Set it with: export DATABASE_URL=postgres://user:password@host/database")?;
 
+    // Optional: development guild ID for faster command registration
+    let dev_guild_id = std::env::var("DEV_GUILD_ID")
+        .ok()
+        .and_then(|id| id.parse::<u64>().ok());
+
+    if dev_guild_id.is_some() {
+        info!("Development mode: Commands will be registered to guild only");
+    }
+
     Ok(Config {
         discord_token,
         database_url,
+        dev_guild_id,
     })
 }
 
@@ -90,11 +106,22 @@ fn load_configuration() -> Result<Config, Box<dyn std::error::Error>> {
 async fn start_bot(
     token: String,
     data: Data,
+    dev_guild_id: Option<u64>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    // Wrap data in Arc for sharing with birthday checker
+    let data_arc = Arc::new(data);
+    let data_for_framework = Arc::clone(&data_arc);
+
     // Create framework
     let framework = poise::Framework::builder()
         .options(poise::FrameworkOptions {
-            commands: vec![create_lobby(), convert_to_lobby()],
+            commands: vec![
+                create_lobby(),
+                convert_to_lobby(),
+                setup_birthday(),
+                disable_birthday(),
+                setup_timezone(),
+            ],
             event_handler: |ctx, event, _framework, data| {
                 Box::pin(async move {
                     match event {
@@ -120,17 +147,35 @@ async fn start_bot(
             ..Default::default()
         })
         .setup(move |ctx, _ready, framework| {
-            Box::pin(async move {
-                // For development: register in a specific guild for instant updates
-                // Replace YOUR_GUILD_ID with your test server's ID
-                // Uncomment the line below and comment out register_globally:
-                // let guild_id = serenity::GuildId::new(YOUR_GUILD_ID);
-                // poise::builtins::register_in_guild(ctx, &framework.options().commands, guild_id).await?;
+            let http = ctx.http.clone();
+            let cache = ctx.cache.clone();
+            let data_clone = Arc::clone(&data_for_framework);
 
-                // For production: register globally (takes up to 1 hour to propagate)
-                poise::builtins::register_globally(ctx, &framework.options().commands).await?;
-                info!("Bot is ready and slash commands registered!");
-                Ok(data)
+            // Start schedule manager
+            start_schedule_manager(http, cache, data_clone);
+            info!("Schedule manager task started");
+
+            Box::pin(async move {
+                // Register commands based on dev_guild_id
+                if let Some(guild_id) = dev_guild_id {
+                    let guild = serenity::GuildId::new(guild_id);
+                    info!("Registering commands in development guild: {}", guild_id);
+                    poise::builtins::register_in_guild(ctx, &framework.options().commands, guild)
+                        .await?;
+                    info!(
+                        "Commands registered in guild {} (instant updates)",
+                        guild_id
+                    );
+                } else {
+                    info!("Registering commands globally (may take up to 1 hour)");
+                    poise::builtins::register_globally(ctx, &framework.options().commands).await?;
+                    info!("Commands registered globally");
+                }
+
+                info!("Bot is ready!");
+
+                // Return a new clone of the data
+                Ok((*data_for_framework).clone())
             })
         })
         .build();
